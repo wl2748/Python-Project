@@ -1,0 +1,272 @@
+### This project is for finding the optimized portfolio (highest Sharpe ratio)
+### Ran the CAPM and Fama-French 4 factor model for the optimized portfolio
+
+
+import numpy as np
+import pandas as pd
+
+import datetime as dt
+import pandas_datareader.data as web
+
+import matplotlib.pyplot as plt
+%matplotlib inline
+%config InlineBackend.figure_format = 'retina'
+
+
+
+### Select 5 companies (from 5 different industries) that continuously traded between January 2012 and December 2018.
+### Download pricing data for each of the stocks from Yahoo!Finance (or another data source) and compute the continuously 
+### compounded daily returns using the Adjusted Closing price. Then create a DataFrame called returns to store the daily 
+### returns for the 5 stocks. Label the columns as 'RET_ticker', where ticker represents the trading symbol of the stock 
+### whose returns are stored in that column. 
+
+
+ticker_lst = ['AAPL','KO','JPM','BA','CVS']
+start = dt.datetime(2012,1,1)
+end = dt.datetime(2018,12,31)
+
+prices = pd.DataFrame()
+for ticker in ticker_lst:
+    prices['PRC_'+ticker]=web.DataReader(ticker,'yahoo',start,end)['Adj Close']
+prices.head()
+
+
+returns = pd.DataFrame()
+for ticker in ticker_lst:
+    returns["RET_"+ticker] = np.log(1+prices['PRC_'+ticker].pct_change())
+returns.head()
+
+### Compute the monthly returns and store them in a DataFrame named returns_mon. 
+### (*Use the resample() method and the rule = 'BM' - Business Month End to compute the monthly returns*). 
+
+returns_mon = returns.resample(rule='BM').sum()
+returns_mon.head()
+
+
+### Create a DataFrame named data_intial that only has the data from January 2012 to December 2016. 
+### In addition, create another DataFrame named data_post to store the 2017 and 2018 data.
+
+data_initial = returns_mon.loc['20120101':'20161231']
+data_initial.head()
+
+data_post = returns_mon.loc['20170101':'20181231']
+data_post.head()
+
+
+
+### Create a DataFrame named rf_rate to store the risk free rate over the period from Janaury 2012 to December 2016.
+
+ff_factors = pd.read_csv('ff_factors.csv',
+                      index_col = ['dateff'],
+                      parse_dates = True)
+ff_factors.rename({'dateff':'Date'},inplace = True)
+ff_factors.head()
+
+rf_rate = ff_factors[['rf']].loc['20120101':'20161231']
+rf_rate.head()
+
+
+### Use the DataFrames data_initial and rf_rate, in conjunction with Scipy' s minimize() function 
+### to find the optimal portfolio (highest Sharpe ratio) from the universe of stocks comprised of the five stocks 
+### you have selected. (Assume there are no short-selling constraints).
+
+from scipy.optimize import minimize
+
+def port_ret(weights):
+    port_ret = np.dot(data_initial * 12,weights).mean()
+    return port_ret
+
+def port_std(weights):
+    port_std = np.sqrt(np.dot(weights.T, np.dot(data_initial.cov() * 12, weights)))
+    return port_std
+
+def neg_SR(weights):
+    SR = (port_ret(weights) - rf_rate['rf'].mean() * 12) / port_std(weights)
+    return (-1) * SR
+
+constraints = ({'type':'eq','fun': lambda weights: np.sum(weights) - 1})
+
+init_guess = [1/5, 1/5, 1/5, 1/5, 1/5]
+
+optimal_port = minimize(neg_SR, init_guess, method = 'SLSQP',
+                     constraints = constraints)
+optimal_port
+
+optimal_port.x
+port_ret(optimal_port.x)
+port_std(optimal_port.x)
+-optimal_port.fun
+
+
+
+### Use the closed form solutions discussed in class to find the return, the standard deviation and the weights of 
+### the stocks in the Global Minimum Variance Portfolio (GMVP)
+
+### Return of the GMVP is:
+
+gmvp_ret = np.dot(12 * data_initial.mean().T, np.dot(np.linalg.inv(data_initial.cov() * 12), np.ones(5))) / np.dot(np.ones(5).T, np.dot(np.linalg.inv(data_initial.cov() * 12), np.ones(5)))
+gmvp_ret
+
+### Standard Deviation of the GMVP is:
+
+gmvp_std = 1 / np.sqrt(np.dot(np.ones(5).T, np.dot(np.linalg.inv(data_initial.cov() * 12), np.ones(5))))
+gmvp_std
+
+### The weights of the stocks in the GMVP are:
+
+gmvp_weights = np.dot(np.linalg.inv(data_initial.cov() * 12), np.ones(5)) / np.dot(np.ones(5).T, np.dot(np.linalg.inv(data_initial.cov() * 12), np.ones(5)))
+gmvp_weights
+
+
+
+### Use Scipy's minimize() function to solve for the efficient frontier. 
+### In addition, plot it and add to the plot the five stocks, the Global Minimum Variance Portfolio (GMVP), 
+### the optimal portfolio, as well as the Capital Allocation Line.
+
+frontier_y = np.arange(gmvp_ret, port_ret(optimal_port.x) + 0.06, 0.005)
+frontier_y
+
+frontier_x = []
+
+for ret in frontier_y:
+    constraints = ({'type':'eq','fun':lambda weights:np.sum(weights) - 1},
+                {'type':'eq','fun':lambda weights:port_ret(weights) - ret})
+    result = minimize(port_std,init_guess, method='SLSQP', constraints=constraints)
+    frontier_x.append(result.fun)
+frontier_x
+
+fig = plt.figure(figsize = (16,8))
+ax = fig.add_subplot(1,1,1)
+ax.plot(frontier_x, frontier_y, color = 'blue',
+           linestyle = '--',linewidth = 3,label = 'Efficient Frontier')
+
+ax.scatter(port_std(optimal_port.x), port_ret(optimal_port.x), color = 'green',s = 100)
+ax.annotate('OP', (port_std(optimal_port.x), port_ret(optimal_port.x)))
+
+ax.scatter(gmvp_std, gmvp_ret, color = 'green', s = 100)
+ax.annotate('GMVP', (gmvp_std, gmvp_ret))
+
+ax.plot(np.arange(0.10,0.22,0.01), (rf_rate['rf'].mean() * 12) + (-optimal_port.fun) * np.arange(0.10, 0.22, 0.01),
+       color = 'green', linewidth = 3,label = 'Capital Allocation Line')
+
+for ticker in ticker_lst:
+    ax.scatter(data_initial['RET_'+ticker].std() * np.sqrt(12), data_initial['RET_'+ticker].mean()*12, color = 'red',s = 100)
+    ax.annotate(ticker, (data_initial['RET_'+ticker].std() * np.sqrt(12), data_initial['RET_'+ticker].mean() * 12))
+
+ax.set_title('Portfolio Optimization')
+ax.set_xlabel('Portfolio Statndard Deviation')
+ax.set_ylabel('Portoflio Return')
+ax.legend(loc = 'best');
+
+
+
+### Create a DataFrame named weights with three columns: 1) TICKER; 2) Optimal_Weights and 3) Equal_Weights for each ticker.
+
+weights = pd.DataFrame({'Ticker':ticker_lst,
+                     'Optimal_Weights':optimal_port.x,
+                     'Equal_Weights':init_guess})
+weights
+
+
+### Using the DataFrames data_post and weights, compute the two portfolio (Optimal and Equal-weighted) monthy 
+### returns over the period January 1st, 2017 and December 2018. Store the portfolio returns into a new DataFrame 
+### named port_returns. Label the two columns as 'Optimal Portfolio' and 'EW_Portfolio'
+
+port_returns = pd.DataFrame({'Optimal_Portfolio': np.dot(data_post, weights['Optimal_Weights']),
+             'EW_Portfolio': np.dot(data_post, weights['Equal_Weights'])},
+                         index = data_post.index)
+port_returns.head()
+
+
+### In a single output, provide summary statistics on the two portfolios.
+
+port_returns.describe()
+
+### Compute the cumulative return for both portfolios and plot them in the same graph. 
+
+port_returns.head()
+
+cum_port_returns = port_returns.cumsum()
+cum_port_returns.head()
+
+cum_port_returns.plot(figsize = (16,8),linewidth = 3,title = 'Cumulative Return for Optimal and EW Portfolios');
+
+
+### What was the two-year cumulative return for the best performer? What was the two-year cumulative return 
+### for the worst performer?
+
+cum_port_returns.tail(1)
+
+
+### Read in the monthly Fama French 4 factors data, available as a .csv file on Blackboard, and merge it with port_returns.
+
+ff_factors = pd.read_csv('ff_factors.csv', index_col='dateff',
+                      parse_dates=True)
+ff_factors.rename({'dateff': 'Date'}, inplace=True)       ### 'ff_factors.csv contains risk_free_rate
+ff_factors.head()
+
+data_all = port_returns.join(ff_factors, on = 'Date')
+data_all.head()
+
+
+
+#### CAPM Results for the Optimal Portfolio
+
+import statsmodels.api as sm
+
+Y = data_all['Optimal_Portfolio'] - data_all['rf']
+X = sm.add_constant(data_all['mktrf'])
+reg = sm.OLS(Y, X, missing = 'drop').fit()
+print(reg.summary(yname = 'Optimal_Portfolio Return',
+                 xname = ['Alpha','Beta']))
+
+
+#### CAPM Results for the EW PortfolioY=data_all['EW_Portfolio']-data_all['rf']
+
+X = sm.add_constant(data_all['mktrf'])
+reg = sm.OLS(Y, X, missing = 'drop').fit()
+print(reg.summary(yname = 'EW_Portfolio Return',
+                 xname = ['Alpha','Beta']))
+                 
+
+
+#### FF 4-Factor Results for the Optimal Portfolio
+
+Y = data_all['Optimal_Portfolio'] - data_all['rf']
+X = sm.add_constant(data_all[['mktrf', 'smb', 'hml', 'umd']])
+reg = sm.OLS(Y, X, missing = 'drop').fit()
+print(reg.summary(yname = 'Optimal_Portfolio Return',
+                 xname = ['Alpha', 'Beta', 'SMB', 'HML', 'UMD']))
+                 
+#### FF 4-Factor Results for the EW Portfolio
+
+Y = data_all['EW_Portfolio'] - data_all['rf']
+X = sm.add_constant(data_all[['mktrf', 'smb', 'hml', 'umd']])
+reg = sm.OLS(Y, X, missing = 'drop').fit()
+print(reg.summary(yname = 'EW_Portfolio Return',
+                 xname = ['Alpha', 'Beta', 'SMB', 'HML', 'UMD']))
+                 
+                 
+
+
+### end
+                     
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
