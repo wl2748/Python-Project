@@ -3,3 +3,222 @@ import pandas as pd
 import matplotlib.pyplot as plt
 %matplotlib inline
 %config InlineBackend.figure_format = 'retina'
+
+
+  #The file "fin_data_clean.csv" contains the following columns:
+
+  #DATE
+  #TICKER
+  #COMNAM - The company name
+  #PRIMEXCH - The exchange where the stock trades ("N" if it trades on NYSE, and "Q" if it trades on NASDAQ)
+  #PRC - The closing price
+  #VOL - Trading volume
+  #SHROUT - The number of shares outstanding (in thousands)
+  #CFACPR - Cumulative factor to adjust the closing price
+  #CFACSHR - Cumulative factor to adjust shares outstanding
+  #SPRTRN - The return on the S&P500 index
+  
+  
+fin_data=pd.read_csv('fin_data_clean.csv',index_col=['DATE'],parse_dates=True)
+fin_data.head()
+
+### Calculate the number of stocks that trade on NYSE and on NASDAQ, respectively.
+fin_data.groupby('PRIMEXCH').nunique()[['TICKER']]
+
+### 2a. Calculate each stock's daily market capitalization (based on closing price and shares outstanding) 
+### and use it to split the stocks into four groups. In a single output, provide summary statistics (use .describe() method) 
+### for the average daily market capitalization for all four groups.
+
+fin_data['DMC']=fin_data['PRC']*fin_data['SHROUT']
+fin_data
+fin_data['TICKER'].nunique()
+fin_DMC=fin_data.sort_index()[['DMC']]
+fin_DMC.head()
+fin_DMC['Rank']=fin_DMC.groupby(fin_data.index).rank()
+fin_DMC.head()
+def f(x):
+    if x in range(1,8):
+        return('Group1')
+    if x in range(8,15):
+        return('Group2')
+    if x in range(15,22):
+        return('Group3')
+    if x in range(22,29):
+        return('Group4')
+
+fin_DMC['Group_Num']=fin_DMC['Rank'].apply(f)
+fin_DMC.head()
+
+fin_DMC_daily=fin_DMC.groupby(['DATE','Group_Num']).mean()[['DMC']]
+fin_DMC_daily.head()
+
+fin_DMC_daily.index.names
+
+fin_DMC_all=fin_DMC_daily.unstack('Group_Num')
+fin_DMC_all.head()
+
+fin_DMC_all.describe()
+
+
+### Create a line plot of the daily averages for all four market capitalization groups.
+
+fin_DMC_all.plot.line(y= 'DMC', 
+                      figsize = (16, 8),
+                     title = 'Daily_Avg_DMC_4', 
+                     grid = True);
+
+### For each year in the sample, calculate the average daily return in January, 
+### as well as the average daily return across all non-January days. In one output, 
+### provide summary statistics (use .describe() method) for both time series.
+
+fin_SPRTRN=fin_data.reset_index().drop_duplicates('DATE')[['DATE','SPRTRN']]
+fin_SPRTRN.set_index('DATE',inplace=True)
+fin_SPRTRN.head()
+
+fin_Jan=pd.concat([fin_SPRTRN['20140101':'20140131'],fin_SPRTRN['20150101':'20150131'],
+           fin_SPRTRN['20160101':'20160131'],fin_SPRTRN['20170101':'20170131'],
+           fin_SPRTRN['20180101':'20180131']])
+fin_Jan_Avg=fin_Jan.groupby(fin_Jan.index.year).mean()
+fin_Jan_Avg.columns=['Jan_Avg']
+fin_Jan_Avg
+
+fin_Non=pd.concat([fin_SPRTRN['20140201':'20141231'],fin_SPRTRN['20150201':'20151231'],
+           fin_SPRTRN['20160201':'20161231'],fin_SPRTRN['20170201':'20171231'],
+           fin_SPRTRN['20180201':'20181231']])
+fin_Non_Avg=fin_Non.groupby(fin_Non.index.year).mean()
+fin_Non_Avg.columns=['Non_Avg']
+fin_Non_Avg
+
+fin_Jan_Effect=pd.concat([fin_Jan_Avg,fin_Non_Avg],axis=1)
+fin_Jan_Effect
+
+fin_Jan_Effect.describe()
+
+
+### Create a bar plot of the average daily return in January, as well as the average daily 
+### return across all non-January days.
+
+fin_Jan_Effect.plot.bar(y=['Jan_Avg','Non_Avg'],figsize=(16,8),grid=True,title='Jan_Effect');
+
+
+
+
+### Apply to a random sample of three stocks that your group will select by running the following code 
+
+np.random.seed (1000+1)
+ticker_list = ['MMM', 'AXP', 'AAPL', 'BA', 'CAT', 'CVX', 'CSCO', 'KO', 'XOM', 'GS', 'HD', 'IBM', 'INTC', 'JNJ',
+               'JPM', 'MCD', 'MRK', 'MSFT', 'NKE', 'PFE', 'PG', 'TRV', 'UNH', 'UTX', 'VZ', 'V', 'WMT', 'DIS']
+stock_lst = [ticker_list[x] for x in np.random.randint(0,27,3)]
+stock_lst
+
+### Compute the daily dollar trading volume (based on closing price and trading volume) for the three stocks. 
+### In one output, provide summary statistics for the three time series.
+
+fin_data['DTV']=fin_data['PRC']*fin_data['VOL']
+fin_data.head()
+
+fin_data_JNJ=fin_data[fin_data['TICKER']=='JNJ'].copy()
+fin_data_GS=fin_data[fin_data['TICKER']=='GS'].copy()
+fin_data_JPM=fin_data[fin_data['TICKER']=='JPM'].copy()
+
+DTV=pd.concat([fin_data_JNJ['DTV'],fin_data_GS['DTV'],fin_data_JPM['DTV']],axis=1)
+
+DTV.columns=['JNJ','GS','JPM']
+DTV.head()
+
+DTV.describe()
+
+### Plot the daily dollar trading volume for the three stocks.
+
+DTV.plot.line(y=['JNJ','GS','JPM'],figsize=(16,8),title='DTV',grid=True,linewidth=0.5);
+
+### Return the date with the highest dollar trading volume for each stock. Briefly, 
+### can you point to a specific event that occured that day?
+
+DTV.index[DTV['JNJ']==DTV['JNJ'].max()]
+DTV.index[DTV['GS']==DTV['GS'].max()]
+DTV.index[DTV['JPM']==DTV['JPM'].max()]
+
+### For each stock, create a line plot of the adjusted closing price, as well as the 50-day and 150-day moving averages. 
+### The adjusted closing price (ADJ_PRC) is calculated as PRC/CFACPR.
+
+fin_data_JNJ['ADJ_PRC']=fin_data_JNJ['PRC']/fin_data_JNJ['CFACPR']
+fin_data_GS['ADJ_PRC']=fin_data_GS['PRC']/fin_data_GS['CFACPR']
+fin_data_JPM['ADJ_PRC']=fin_data_JPM['PRC']/fin_data_JPM['CFACPR']
+
+fin_data_JNJ['50D_MA']=fin_data_JNJ['ADJ_PRC'].rolling(50).mean()
+fin_data_JNJ['150D_MA']=fin_data_JNJ['ADJ_PRC'].rolling(150).mean()
+fin_data_GS['50D_MA']=fin_data_GS['ADJ_PRC'].rolling(50).mean()
+fin_data_GS['150D_MA']=fin_data_GS['ADJ_PRC'].rolling(150).mean()
+fin_data_JPM['50D_MA']=fin_data_JPM['ADJ_PRC'].rolling(50).mean()
+fin_data_JPM['150D_MA']=fin_data_JPM['ADJ_PRC'].rolling(150).mean()
+
+fin_data_JNJ.head()
+
+fin_data_JNJ.plot.line(y=['ADJ_PRC','50D_MA','150D_MA'], figsize = (16, 8),title='JNJ_PRC');
+
+fin_data_GS.plot.line(y=['ADJ_PRC','50D_MA','150D_MA'], figsize = (16, 8),title='GS_PRC');
+
+fin_data_JPM.plot.line(y=['ADJ_PRC','50D_MA','150D_MA'], figsize = (16, 8),title='JPM_PRC');
+
+
+
+### For each stock, compute the daily returns. Combine the three time series in a single DataFrame and provide the summary 
+### statistics (use .describe() method) in a single output.
+
+fin_data_JNJ['RET_JNJ']=fin_data_JNJ['ADJ_PRC'].pct_change()
+fin_data_GS['RET_GS']=fin_data_GS['ADJ_PRC'].pct_change()
+fin_data_JPM['RET_JPM']=fin_data_JPM['ADJ_PRC'].pct_change()
+
+RET=pd.concat([fin_data_JNJ['RET_JNJ'],fin_data_GS['RET_GS'],fin_data_JPM['RET_JPM']],axis=1)
+RET.head()
+
+RET.describe()
+
+
+### Create a histogram of the daily returns for all three stocks.
+
+RET.plot.hist(y=['RET_JNJ','RET_GS','RET_JPM'],bins=100,figsize=(16,8),title='RET_HIST');
+
+### Create a KDE plot of the daily returns for all three stocks.
+
+RET.plot.kde(y=['RET_JNJ','RET_GS','RET_JPM'],figsize=(16,8),grid=True,title='RET_KDE');
+
+
+### Compute the cumulative daily returns for each stock, as well as for the S&P 500, and create 
+### a line plot to show all four time series.
+
+RET['Cumulative_RET_JNJ']=(1+RET['RET_JNJ']).cumprod()-1
+RET['Cumulative_RET_GS']=(1+RET['RET_GS']).cumprod()-1
+RET['Cumulative_RET_JPM']=(1+RET['RET_JPM']).cumprod()-1
+RET.head()
+
+fin_SPRTRN.head()
+
+fin_SPRTRN['Cumulative_RET_SPRTRN']=(1+fin_SPRTRN['SPRTRN']).cumprod()-1
+fin_SPRTRN.head()
+
+RET_all=pd.merge(RET,fin_SPRTRN,how='outer',on='DATE')
+RET_all.head()
+
+RET_all.plot.line(y=['Cumulative_RET_JNJ','Cumulative_RET_GS','Cumulative_RET_JPM','Cumulative_RET_SPRTRN'],
+                  figsize=(16,8),grid=True,title='Cumulative_RET');
+                  
+                  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+        
